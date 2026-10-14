@@ -1,10 +1,10 @@
-import builtins
 import datetime
 import os
 
 import pytest
 
-import get_all_gds_layers as g
+from gds_layers.backends import pvs
+from gds_layers.report import parse_cell_args, write_reports
 
 NOW = datetime.datetime(2026, 10, 6, 12, 0, 0)
 
@@ -56,9 +56,9 @@ All cells:   ./TOP_GDS_cells
 """
 
 
-def run(k2, tmp_path, cell_list, layer_filter=g.LAYER_FILTER):
-    info = g.collect_info(k2, 'top.gds', cell_list, layer_filter, workdir=str(tmp_path))
-    g.write_reports(info, 'top.gds', cell_list, outdir=str(tmp_path), now=NOW)
+def run(k2, tmp_path, cell_list, layer_filter=pvs.LAYER_FILTER):
+    info = pvs.collect_info('top.gds', cell_list, layer_filter, workdir=str(tmp_path), k2=k2)
+    write_reports(info, 'top.gds', cell_list, outdir=str(tmp_path), now=NOW)
     return info
 
 
@@ -109,39 +109,5 @@ def test_missing_cell_fails_before_extraction(k2, tmp_path):
     assert not any(c[0] == 'extract' for c in k2.calls)
 
 
-def test_parse_args():
-    gds, cells, flt = g.parse_args(['a.gds', '-c', 'IPA', '-c', 'IPB=b', '--layer-filter', 'm.*'])
-    assert (gds, cells, flt) == ('a.gds', {'IPA': '', 'IPB': 'b'}, 'm.*')
-
-
-def test_parse_args_defaults(monkeypatch):
-    monkeypatch.setattr(g, 'GDS', 'default.gds')
-    monkeypatch.setattr(g, 'CELL_LIST', {'X': 'y'})
-    # argparse binds defaults at parser creation, which happens inside parse_args.
-    assert g.parse_args([]) == ('default.gds', {'X': 'y'}, g.LAYER_FILTER)
-
-
-@pytest.mark.parametrize('argv', [[], ['a.gds', '--layer-filter', '[']])
-def test_parse_args_errors(argv):
-    with pytest.raises(SystemExit):
-        g.parse_args(argv)
-
-
-def test_main_uses_injected_k2_quake(k2, tmp_path, monkeypatch):
-    monkeypatch.setattr(builtins, 'k2_quake', k2, raising=False)
-    monkeypatch.chdir(tmp_path)
-    g.main(['top.gds', '-c', 'IPA'])
-    assert (tmp_path / 'TOP_GDS_info').exists()
-
-
-def test_main_without_k2_quake_exits(monkeypatch):
-    monkeypatch.delattr(builtins, 'k2_quake', raising=False)
-    with pytest.raises(SystemExit, match='k2_quake'):
-        g.main(['top.gds'])
-
-
-def test_main_missing_cell_exits(k2, tmp_path, monkeypatch):
-    monkeypatch.setattr(builtins, 'k2_quake', k2, raising=False)
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit, match='NOPE'):
-        g.main(['top.gds', '-c', 'NOPE'])
+def test_parse_cell_args():
+    assert parse_cell_args(['A', 'B=b', 'C=']) == {'A': '', 'B': 'b', 'C': ''}

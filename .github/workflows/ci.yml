@@ -15,7 +15,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       # PVS ships its own Python; keep the script runnable on old versions.
-      - run: vermin --no-tips --eval-annotations --violations -t=3.6- get_all_gds_layers.py
+      - run: vermin --no-tips --eval-annotations --violations -t=3.6- get_all_gds_layers.py gds_layers
 
   test:
     runs-on: ${{ matrix.os }}
@@ -30,5 +30,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      # tclsh runs the Calibre Tcl script against a fake `layout` command.
+      - run: sudo apt-get install -y tcl
       - run: pip install pytest
-      - run: pytest -v
+      # Optional backend; its tests are skipped where no wheel is available.
+      - run: pip install gdstk || echo "gdstk unavailable on ${{ matrix.python }}"
+      - run: pytest -v -rs

@@ -1,19 +1,31 @@
 # get_gds_layers
 
-A small script for the PVS `k2_quake` Python environment. It reads a GDS file and writes a
-report of the top cell: its size, scale factor, units, cell list and layers. You can also
-pass sub-cells (IPs) to get a matrix that shows which top-level layers each one uses.
+Reads a GDS file and writes a report of the top cell: its size, scale factor, units, cell
+list and layers. You can also pass sub-cells (IPs) to get a matrix that shows which
+top-level layers each one uses.
 
-## Requirements
+It works with whichever layout tool you have:
 
-- A sourced PVS setup that provides the `k2_quake` command and Python module.
-  The script can't run under plain `python`.
-- Python 3.6 or newer (whatever version PVS ships with).
+| `--tool` | Needs | Layer names |
+| --- | --- | --- |
+| `pvs` | Cadence PVS: a sourced PVS setup; run with `k2_quake python` | as PVS reports them |
+| `calibre` | Siemens Calibre: `calibredrv` on `PATH` (or set `CALIBREDRV`) | `layer.datatype` |
+| `gdstk` | open source: `pip install gdstk` | `layer.datatype` |
+
+With the default `--tool auto`, the first available tool is used, in the order above.
+
+> **Calibre:** the backend hasn't been run against a real Calibre yet. Its DESIGNrev Tcl
+> script is tested under `tclsh` with a fake `layout` command
+> ([tests/fake_calibredrv.tcl](tests/fake_calibredrv.tcl)), so check the first real run.
+
+Requires Python 3.6 or newer.
 
 ## Usage
 
 ```bash
-k2_quake python get_all_gds_layers.py path/to/design.gds
+k2_quake python get_all_gds_layers.py design.gds          # PVS
+python3 get_all_gds_layers.py design.gds --tool calibre   # Calibre
+python3 get_all_gds_layers.py design.gds --tool gdstk     # open source
 ```
 
 To compare sub-cells against the top cell, add `-c CELL` once per cell. You can also give
@@ -27,14 +39,24 @@ k2_quake python get_all_gds_layers.py design.gds -c very_long_ip_cell_name=ipA -
 | --- | --- |
 | `gds` | Path to the GDS file. |
 | `-c, --cell CELL[=ALIAS]` | Cell to compare against the top cell. Can be repeated. |
-| `--layer-filter REGEX` | Report only the layers whose names match this regex. Default: `.*lay.*`. |
+| `-t, --tool {auto,pvs,calibre,gdstk}` | Layout tool to read the GDS with. Default: `auto`. |
+| `--layer-filter REGEX` | Report only the layers whose names match this regex. Default: `.*lay.*` for PVS, everything for the other tools. |
 
 If you don't pass any arguments, the script uses the `GDS` and `CELL_LIST` values set at
 the top of `get_all_gds_layers.py`.
 
-> Extracting large cells can take a while. Each requested cell is extracted into a hidden
-> temporary directory (`.gds_layers_*`) in the current directory, which is removed afterwards,
-> even if the run fails. Requested cells are checked against the GDS before any extraction starts.
+> Extracting large cells can take a while with PVS and Calibre. Each requested cell is
+> extracted into a hidden temporary directory (`.gds_layers_*`) in the current directory,
+> which is removed afterwards, even if the run fails. Requested cells are checked against
+> the GDS before any extraction starts. gdstk reads the hierarchy directly and doesn't
+> extract anything.
+
+## Adding a tool
+
+Add a module to [gds_layers/backends/](gds_layers/backends/) with `NAME`, `REQUIREMENT`,
+`LAYER_FILTER`, `available()` and `collect_info()` (see
+[gds_layers/backends/__init__.py](gds_layers/backends/__init__.py)), then list it in
+`BACKENDS`. The report itself is built in [gds_layers/report.py](gds_layers/report.py).
 
 ## Output
 
@@ -70,14 +92,15 @@ All cells:   ./TOP_GDS_cells
 
 ## Development
 
-The tests use a fake `k2_quake` module ([tests/conftest.py](tests/conftest.py)), so they run
-without PVS:
+The tests run without any EDA tool: PVS uses a fake `k2_quake` module
+([tests/conftest.py](tests/conftest.py)), Calibre uses `tclsh` with a fake `layout` command, and
+gdstk reads real GDS files that the tests generate.
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ruff check .
-vermin --no-tips --eval-annotations --violations -t=3.6- get_all_gds_layers.py
+vermin --no-tips --eval-annotations --violations -t=3.6- get_all_gds_layers.py gds_layers
 ```
 
 CI runs the same checks on every push.

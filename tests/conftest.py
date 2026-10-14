@@ -1,9 +1,11 @@
 import os
+import shutil
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 
 class FakeK2Quake:
@@ -62,3 +64,20 @@ def k2():
         'IPA': ['m1_lay'],
         'IPB': ['m2_lay', 'via_lay'],
     })
+
+
+@pytest.fixture
+def fake_calibredrv(tmp_path, monkeypatch):
+    """Point CALIBREDRV at tclsh running tests/fake_calibredrv.tcl."""
+    tclsh = shutil.which('tclsh')
+    if tclsh is None:
+        pytest.skip('tclsh not installed')
+    exe = tmp_path / 'calibredrv'
+    exe.write_text('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (
+        tclsh, os.path.join(ROOT, 'tests', 'fake_calibredrv.tcl')))
+    exe.chmod(0o755)
+    monkeypatch.setenv('CALIBREDRV', str(exe))
+
+    def set_layout(tcl_layout):
+        monkeypatch.setenv('FAKE_LAYOUT', tcl_layout)
+    return set_layout

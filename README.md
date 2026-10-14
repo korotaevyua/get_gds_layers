@@ -8,6 +8,7 @@ pass sub-cells (IPs) to get a matrix that shows which top-level layers each one 
 
 - A sourced PVS setup that provides the `k2_quake` command and Python module.
   The script can't run under plain `python`.
+- Python 3.6 or newer (whatever version PVS ships with).
 
 ## Usage
 
@@ -31,8 +32,9 @@ k2_quake python get_all_gds_layers.py design.gds -c very_long_ip_cell_name=ipA -
 If you don't pass any arguments, the script uses the `GDS` and `CELL_LIST` values set at
 the top of `get_all_gds_layers.py`.
 
-> Extracting large cells can take a while. Each requested cell is written to a temporary
-> `<cell>.gds` in the current directory, and that file is deleted afterwards.
+> Extracting large cells can take a while. Each requested cell is extracted into a hidden
+> temporary directory (`.gds_layers_*`) in the current directory, which is removed afterwards,
+> even if the run fails. Requested cells are checked against the GDS before any extraction starts.
 
 ## Output
 
@@ -65,6 +67,20 @@ All cells:   ./TOP_GDS_cells
  via_lay |  -  | + |
 -------------------
 ```
+
+## Development
+
+The tests use a fake `k2_quake` module ([tests/conftest.py](tests/conftest.py)), so they run
+without PVS:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+ruff check .
+vermin --no-tips --eval-annotations --violations -t=3.6- get_all_gds_layers.py
+```
+
+CI runs the same checks on every push.
 
 ## License
 

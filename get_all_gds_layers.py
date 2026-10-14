@@ -12,9 +12,12 @@ Extraction may take time for large GDS cells.
 Reconstructed from photographs; verify cell names against your GDS.
 """
 import argparse
+import builtins
 import datetime
 import os
 import re
+import sys
+import tempfile
 
 # Defaults used when no command-line arguments are given.
 # GDS: path to the GDS file.
@@ -28,92 +31,133 @@ CELL_LIST = {
 LAYER_FILTER = '.*lay.*'
 
 
-def parse_args():
+def parse_cell_args(items):
+    """Turn ['A', 'B=b'] into {'A': '', 'B': 'b'}."""
+    cell_list = {}
+    for item in items:
+        name, _, alias = item.partition('=')
+        cell_list[name] = alias
+    return cell_list
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('gds', nargs='?', default=GDS, help='path to the GDS file')
     parser.add_argument('-c', '--cell', action='append', metavar='CELL[=ALIAS]',
                         help='cell to compare against the top cell; may be repeated')
     parser.add_argument('--layer-filter', default=LAYER_FILTER,
-                        help=f'regex for layers to report (default: {LAYER_FILTER!r})')
-    args = parser.parse_args()
+                        help='regex for layers to report (default: %(default)r)')
+    args = parser.parse_args(argv)
     if not args.gds:
         parser.error('no GDS given (pass it as an argument or set GDS in the script)')
+    try:
+        re.compile(args.layer_filter)
+    except re.error as e:
+        parser.error('invalid --layer-filter: %s' % e)
 
-    if args.cell:
-        cell_list = {}
-        for item in args.cell:
-            name, _, alias = item.partition('=')
-            cell_list[name] = alias
-    else:
-        cell_list = dict(CELL_LIST)
+    cell_list = parse_cell_args(args.cell) if args.cell else dict(CELL_LIST)
     return args.gds, cell_list, args.layer_filter
+
+
+def get_k2_quake():
+    """Return the k2_quake API, which `k2_quake python` provides as a global."""
+    k2 = globals().get('k2_quake') or getattr(builtins, 'k2_quake', None)
+    if k2 is not None:
+        return k2
+    try:
+        import k2_quake
+    except ImportError:
+        sys.exit('k2_quake is not available: source a PVS setup and run\n'
+                 '    k2_quake python get_all_gds_layers.py ...')
+    return k2_quake
 
 
 def column_name(cell_list, ip):
     return cell_list[ip] or ip
 
 
-def main():
-    gds, cell_list, layer_filter = parse_args()
+def collect_info(k2, gds, cell_list, layer_filter, workdir='.'):
+    """Read the GDS and return everything the report needs."""
+    dbId = k2.data_read_file(gds)
+    all_layers = k2.data_get_db_layers(dbId)
+    cells = k2.data_get_db_cell_names(dbId)
 
-    # Read full GDS.
-    dbId = k2_quake.data_read_file(gds)
-    all_layers = k2_quake.data_get_db_layers(dbId)
-    top_layers = [layer for layer in all_layers if re.match(layer_filter, layer)]
+    # Fail before the (slow) extraction rather than halfway through it.
+    missing = [ip for ip in cell_list if ip not in cells]
+    if missing:
+        raise ValueError('cells not found in %s: %s' % (gds, ', '.join(missing)))
 
-    top_cell = k2_quake.data_get_db_cell_name(dbId)
-    cellExtents = k2_quake.data_get_db_cell_extent(dbId)
-    scaleFactor = k2_quake.data_get_db_scale_factor(dbId)
-    dbUnits = k2_quake.data_get_db_units(dbId)
-    cells = k2_quake.data_get_db_cell_names(dbId)
+    info = {
+        'top_cell': k2.data_get_db_cell_name(dbId),
+        'top_layers': [layer for layer in all_layers if re.match(layer_filter, layer)],
+        'extent': k2.data_get_db_cell_extent(dbId),
+        'scale_factor': k2.data_get_db_scale_factor(dbId),
+        'units': k2.data_get_db_units(dbId),
+        'cells': cells,
+        'ip_layers': {},
+    }
 
-    # Extract each requested cell to a temporary GDS and read its layers.
-    ip_layers_info = {}
-    try:
-        for ip in cell_list:
+    # Extract each requested cell to its own GDS in a private temporary
+    # directory, so that existing files in the work dir are never touched.
+    with tempfile.TemporaryDirectory(prefix='.gds_layers_', dir=workdir) as tmp:
+        for i, ip in enumerate(cell_list):
+            path = os.path.join(tmp, 'cell%d.gds' % i)
             print(f'START {ip} GDS extraction')
-            k2_quake.data_db_extract(dbId, ip + '.gds', ip)
+            k2.data_db_extract(dbId, path, ip)
             print(f'FINISH {ip} GDS extraction')
-            db = k2_quake.data_read_file(ip + '.gds')
-            ip_layers_info[ip] = k2_quake.data_get_db_layers(db)
-    finally:
-        # Clean up work dir.
-        for ip in cell_list:
-            if os.path.exists(ip + '.gds'):
-                os.remove(ip + '.gds')
+            info['ip_layers'][ip] = k2.data_get_db_layers(k2.data_read_file(path))
+    return info
 
-    with open(top_cell + '_GDS_cells', 'w') as report_cells:
-        for cell in cells:
-            report_cells.write(cell + '\n')
+
+def format_report(info, gds, cell_list, now):
+    top_cell = info['top_cell']
+    lines = [
+        'GDS: ' + gds,
+        'Generated at ' + now.strftime('%Y-%m-%d %H:%M:%S'),
+        '',
+        'Top cell:    ' + top_cell,
+        'All layers:  ' + str(len(info['top_layers'])),
+        'Top size:    ' + str(info['extent']),
+        'Scale factor: ' + str(info['scale_factor']),
+        'dbUnits:     ' + str(info['units']),
+        'All cells:   ' + './' + top_cell + '_GDS_cells',
+    ]
 
     names = f"{top_cell:^{len(top_cell)+6}}|"
     dash_line = '-' * (len(top_cell) + 6)
     for ip in cell_list:
         col = column_name(cell_list, ip)
-        names = names + f"{col:^{len(col)+2}}|"
-        dash_line = dash_line + '-' + '-' * (len(col) + 2)
+        names += f"{col:^{len(col)+2}}|"
+        dash_line += '-' + '-' * (len(col) + 2)
 
-    with open(top_cell + '_GDS_info', 'w') as report:
-        report.write('GDS: ' + gds + '\n')
-        report.write('Generated at ' + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + '\n' * 2)
+    lines += ['', dash_line, '', names, dash_line]
+    for layer in info['top_layers']:
+        row = f"{layer:^{len(top_cell)+6}}|"
+        for ip in cell_list:
+            col = column_name(cell_list, ip)
+            mark = '+' if layer in info['ip_layers'][ip] else '-'
+            row += f"{mark:^{len(col)+2}}|"
+        lines += [row, dash_line]
+    return '\n'.join(lines) + '\n'
 
-        report.write('Top cell:    ' + top_cell + '\n')
-        report.write('All layers:  ' + str(len(top_layers)) + '\n')
-        report.write('Top size:    ' + str(cellExtents) + '\n')
-        report.write('Scale factor: ' + str(scaleFactor) + '\n')
-        report.write('dbUnits:     ' + str(dbUnits) + '\n')
-        report.write('All cells:   ' + './' + top_cell + '_GDS_cells' + '\n')
 
-        report.write('\n' + dash_line + '\n' + '\n')
-        report.write(names + '\n' + dash_line + '\n')
+def write_reports(info, gds, cell_list, outdir='.', now=None):
+    now = now or datetime.datetime.now()
+    top_cell = info['top_cell']
+    with open(os.path.join(outdir, top_cell + '_GDS_cells'), 'w') as f:
+        f.write(''.join(cell + '\n' for cell in info['cells']))
+    with open(os.path.join(outdir, top_cell + '_GDS_info'), 'w') as f:
+        f.write(format_report(info, gds, cell_list, now))
 
-        for layer in top_layers:
-            layer_info = f"{layer:^{len(top_cell)+6}}|"
-            for ip in cell_list:
-                col = column_name(cell_list, ip)
-                mark = '+' if layer in ip_layers_info[ip] else '-'
-                layer_info = layer_info + f"{mark:^{len(col)+2}}|"
-            report.write(layer_info + '\n' + dash_line + '\n')
+
+def main(argv=None):
+    gds, cell_list, layer_filter = parse_args(argv)
+    k2 = get_k2_quake()
+    try:
+        info = collect_info(k2, gds, cell_list, layer_filter)
+    except ValueError as e:
+        sys.exit('error: %s' % e)
+    write_reports(info, gds, cell_list)
 
 
 if __name__ == '__main__':

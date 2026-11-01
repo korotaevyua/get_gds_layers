@@ -2,7 +2,7 @@
 
 Run inside a PVS environment, where the ``k2_quake`` module is provided:
 
-    k2_quake python get_all_gds_layers.py <path/to/design.gds> [-c CELL[=ALIAS] ...]
+    k2_quake python pvs/get_all_gds_layers.py <path/to/design.gds> [-c CELL[=ALIAS] ...]
 
 Writes two files into the current directory:
     <top_cell>_GDS_info   - summary and layer/cell presence matrix
@@ -68,7 +68,7 @@ def get_k2_quake():
         import k2_quake
     except ImportError:
         sys.exit('k2_quake is not available: source a PVS setup and run\n'
-                 '    k2_quake python get_all_gds_layers.py ...')
+                 '    k2_quake python pvs/get_all_gds_layers.py ...')
     return k2_quake
 
 

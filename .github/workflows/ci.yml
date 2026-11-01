@@ -15,7 +15,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       # PVS ships its own Python; keep the script runnable on old versions.
-      - run: vermin --no-tips --eval-annotations --violations -t=3.6- get_all_gds_layers.py
+      - run: vermin --no-tips --eval-annotations --violations -t=3.6- pvs/get_all_gds_layers.py
 
   test:
     runs-on: ${{ matrix.os }}

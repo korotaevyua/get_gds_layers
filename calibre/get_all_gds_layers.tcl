@@ -1,11 +1,11 @@
-# Calibre DESIGNrev version of get_all_gds_layers.py.
+# Calibre DESIGNrev version of pvs/get_all_gds_layers.py.
 #
 # Creates report file <top_cell>_GDS_info with all layers of the top cell
 # and, optionally, which of them are used by selected cells, plus
 # <top_cell>_GDS_cells with the list of all cells.
 #
 # Usage:
-#   calibredrv get_all_gds_layers.tcl design.gds [CELL[=ALIAS] ...] [-layer_filter REGEX]
+#   calibredrv calibre/get_all_gds_layers.tcl design.gds [CELL[=ALIAS] ...] [-layer_filter REGEX]
 #
 #   CELL=ALIAS      ALIAS is used as the column name in the report.
 #   -layer_filter   report only layers matching REGEX (default: all layers).
@@ -13,10 +13,10 @@
 # Without arguments, the gds / cell_list / layer_filter values below are used.
 # Extraction may take time for large GDS cells.
 #
-# NOTE: written without access to Calibre; the DESIGNrev commands used are
-# collected in one place (open_layout ... layout_precision) so they are easy
-# to fix. Tested only under plain tclsh with a fake `layout` command
-# (tests/fake_calibredrv.tcl). Written for Tcl 8.4 (no dict/lassign/{*}).
+# The DESIGNrev commands used are collected in one place (open_layout ...
+# layout_precision). Besides real Calibre runs, CI tests the script under plain
+# tclsh with a fake `layout` command (tests/fake_calibredrv.tcl).
+# Written for Tcl 8.4 (no dict/lassign/{*}).
 
 set gds ""
 # Pairs of actual cell name and short name for the report column ("" keeps
